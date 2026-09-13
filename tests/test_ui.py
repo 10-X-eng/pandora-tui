@@ -124,3 +124,34 @@ async def test_repeated_click_does_not_queue_another_selection():
         client.release.set()
         await first.wait()
         assert sum(c == 'choose' for c, _ in client.commands) == 1
+
+
+async def test_double_activation_after_fast_response_plays_once(monkeypatch):
+    now = [10.0]
+    monkeypatch.setattr('pandora_tui.ui.monotonic', lambda: now[0])
+    client = Client()
+    app = PandoraApp(client=client, visualizer=False)
+    async with app.run_test(size=(80,40)) as pilot:
+        await pilot.pause()
+        await app.command('choose', source_id='TR:1').wait()
+        now[0] += .1
+        await app.command('choose', source_id='TR:1').wait()
+        assert sum(c == 'choose' for c, _ in client.commands) == 1
+        await app.command('choose', source_id='TR:2').wait()
+        assert sum(c == 'choose' for c, _ in client.commands) == 2
+        now[0] += 1
+        await app.command('choose', source_id='TR:2').wait()
+        assert sum(c == 'choose' for c, _ in client.commands) == 3
+
+
+async def test_discover_mouse_double_click_sends_one_play_request():
+    client = Client()
+    app = PandoraApp(client=client, visualizer=False)
+    async with app.run_test(size=(80,40)) as pilot:
+        await pilot.pause()
+        app.action_discover()
+        app.query_one('#discover', DataTable).add_row('Song', 'New song', 'Artist', key='TR:2')
+        await pilot.pause()
+        await pilot.click('#discover', offset=(2,1), times=2)
+        await pilot.pause()
+        assert [args for c, args in client.commands if c == 'choose'] == [{'source_id':'TR:2'}]

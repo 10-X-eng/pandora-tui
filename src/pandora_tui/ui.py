@@ -1,4 +1,5 @@
 import asyncio
+from time import monotonic
 from pathlib import Path
 import tomllib
 from rich.text import Text
@@ -91,6 +92,8 @@ class PandoraApp(App):
         self.sources = []
         self.state = {}
         self.selection_pending = False
+        self.last_selection = None
+        self.last_selection_at = 0.0
         self.selected_source = None
         self.browse_source = None
         self.last_playing_source = None
@@ -266,12 +269,18 @@ class PandoraApp(App):
     @work(group="commands")
     async def command(self, command, **args):
         if command == "choose":
-            if self.selection_pending:
+            selection = (args.get("source_id"), args.get("index", 0))
+            if self.selection_pending or (
+                selection == self.last_selection and monotonic() - self.last_selection_at < .75
+            ):
                 return
             self.selection_pending = True
         try:
             self.query_one("#status", Static).update("Working…")
             await self.client.request(command, **args)
+            if command == "choose":
+                self.last_selection = selection
+                self.last_selection_at = monotonic()
             if command == "refresh": await self.load_library()
             await self.poll()
         except AppError as error:
