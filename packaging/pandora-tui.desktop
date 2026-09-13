@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Pandora TUI
+Comment=Pandora stations and playlists with background playback
+Exec=pandora-tui launch
+Icon=audio-x-generic
+Terminal=false
+Categories=AudioVideo;Audio;Player;
+StartupWMClass=io.github.pandora_tui

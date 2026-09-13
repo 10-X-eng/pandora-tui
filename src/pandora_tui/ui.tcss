@@ -1,0 +1,30 @@
+Screen { background: $background; }
+Header { background: $surface; }
+#workspace { height: 1fr; padding: 0 2; }
+#now-playing { height: 5; padding-top: 1; }
+#song { height: 1; text-style: bold; color: $foreground; }
+#artist { height: 1; color: $primary; }
+#source { height: 1; color: $text-muted; }
+#progress { height: 1; color: $text-muted; }
+#controls { height: 3; margin-top: 1; }
+Button { min-width: 5; height: 3; padding: 0 1; margin-right: 1; }
+#toggle, #next { min-width: 8; }
+#spectrum-label { height: 1; color: $text-muted; text-style: dim; margin-top: 1; }
+#spectrum { height: 5; color: $primary; }
+.compact #spectrum { height: 2; }
+.compact #spectrum-label { margin-top: 0; }
+.compact #controls { margin-top: 0; }
+#search { height: 3; margin: 1 0 0 0; }
+#library-tabs { height: 1fr; min-height: 5; }
+TabPane { padding: 0; }
+DataTable { height: 1fr; background: $background; }
+#tracks-title { height: 1; color: $text-muted; }
+#more { height: 3; margin: 0; }
+#status { height: 1; padding: 0 2; color: $text-muted; }
+Footer { background: $surface; }
+LoginScreen { align: center middle; background: $background 80%; }
+#login-card { width: 60; max-width: 95%; height: auto; padding: 1 2; border: thick $primary; background: $surface; }
+#login-title { text-style: bold; margin-bottom: 1; color: $primary; }
+#login-card Input { margin-top: 1; }
+#login-card Horizontal { height: 3; margin-top: 1; }
+#login-error { height: auto; color: $error; }
