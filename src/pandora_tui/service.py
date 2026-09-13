@@ -9,6 +9,7 @@ from .credentials import CredentialStore
 from .engine import Engine
 from .errors import AppError
 from .mpris import Mpris
+from .preferences import Preferences
 from .paths import runtime_dir, state_dir, socket_path
 
 
@@ -31,7 +32,7 @@ async def serve(silent=False, restore=True):
         lock.close()
         return
     shutdown = asyncio.Event()
-    engine = Engine(PandoraAPI(device_id()), CredentialStore(), silent=silent)
+    engine = Engine(PandoraAPI(device_id()), CredentialStore(), silent=silent, preferences=Preferences())
     mpris = Mpris()
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
@@ -50,10 +51,12 @@ async def serve(silent=False, restore=True):
             await engine.login(email, password, remember=bool(data.get("remember", False)))
         elif command == "tracks":
             identity = str(data.get("source_id", ""))
-            if not any(source.id == identity and source.kind == "playlist" for source in engine.sources):
+            if not identity.startswith(("PL:", "AL:", "AP:")) or not (any(source.id == identity for source in engine.sources) or identity in engine.catalog_sources or (engine.track and engine.track.source_id == identity)):
                 raise AppError("Select a playlist from your library.")
             offset = max(0, int(data.get("offset", 0)))
             return await asyncio.to_thread(engine.api.tracks, identity, offset)
+        elif command == "search":
+            return await engine.search(str(data.get("query", "")), max(0, int(data.get("offset", 0))))
         elif command == "up_next":
             identity = str(data.get("source_id", ""))
             if not engine.track or engine.track.source_id != identity or not identity.startswith("ST:"):
@@ -68,7 +71,7 @@ async def serve(silent=False, restore=True):
         elif command == "shuffle": await engine.set_shuffle(bool(data.get("value")))
         elif command == "thumb": await engine.thumb(bool(data.get("positive")))
         elif command == "quit": shutdown.set()
-        elif command in ("play", "pause", "toggle", "next", "stop", "refresh", "logout"):
+        elif command in ("play", "pause", "toggle", "next", "previous", "stop", "refresh", "logout"):
             await getattr(engine, command)()
         else:
             raise AppError("Unknown player command.")

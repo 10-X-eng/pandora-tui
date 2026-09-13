@@ -67,7 +67,10 @@ class PandoraApp(App):
     SUB_TITLE = "Background player"
     CSS_PATH = "ui.tcss"
     BINDINGS = [
-        ("space", "toggle", "Play/pause"), ("n", "next", "Skip"),
+        ("space", "toggle", "Play/pause"), ("n", "next", "Next"),
+        Binding("p", "previous", "Previous", show=False),
+        Binding("4", "discover", "Discover", show=False),
+        Binding("s", "discover", "Find music", show=False),
         ("slash", "search", "Search"), ("q", "quit", "Close"),
         Binding("b", "browse", "Tracks", show=False),
         Binding("l", "login", "Login", show=False),
@@ -87,6 +90,7 @@ class PandoraApp(App):
         self.connect = connect
         self.sources = []
         self.state = {}
+        self.selection_pending = False
         self.selected_source = None
         self.browse_source = None
         self.last_playing_source = None
@@ -95,6 +99,9 @@ class PandoraApp(App):
         self.track_total = 0
         self.login_shown = False
         self.theme_stamp = None
+        self.music_query = ""
+        self.music_rows = []
+        self.music_has_more = False
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -105,6 +112,7 @@ class PandoraApp(App):
                 yield Static("", id="source", markup=False)
                 yield Static("Stopped", id="progress", markup=False)
             with Horizontal(id="controls"):
+                yield Button("Previous", id="previous")
                 yield Button("Play", id="toggle", variant="primary")
                 yield Button("Skip", id="next")
                 yield Button("Shuffle off", id="shuffle")
@@ -122,8 +130,15 @@ class PandoraApp(App):
                     yield DataTable(id="playlists", cursor_type="row", zebra_stripes=True)
                 with TabPane("3 Tracks", id="tracks-tab"):
                     yield Label("Tracks will appear when playback starts", id="tracks-title")
+                    yield Label("Single-click or Enter to play", classes="play-hint")
                     yield DataTable(id="tracks", cursor_type="row", zebra_stripes=True)
                     yield Button("Load more tracks", id="more")
+                with TabPane("4 Discover", id="discover-tab"):
+                    yield Input(placeholder="Search Pandora for songs, artists, albums…", id="music-query")
+                    yield Static("Type a search and press Enter", id="music-status", markup=False)
+                    yield Label("Single-click or Enter to play", classes="play-hint")
+                    yield DataTable(id="discover", cursor_type="row", zebra_stripes=True)
+                    yield Button("More results", id="music-more", disabled=True)
         yield Static("Connecting…", id="status", markup=False)
         yield Footer()
 
@@ -131,6 +146,7 @@ class PandoraApp(App):
         self.query_one("#stations", DataTable).add_column("Station")
         self.query_one("#playlists", DataTable).add_columns("Playlist", "Songs")
         self.query_one("#tracks", DataTable).add_columns("#", "Track", "Artist", "Time")
+        self.query_one("#discover", DataTable).add_columns("Type", "Title", "Artist")
         self.fit_tables()
         self.set_class(self.size.height < 34, "compact")
         self.query_one("#stations", DataTable).focus()
@@ -166,10 +182,10 @@ class PandoraApp(App):
                 self.track_rows = []
                 self.track_total = 0
                 self.browse_source = None
-                if playing_source and playing_source.startswith("PL:"):
-                    self.query_one("#tracks-title", Label).update("Loading playing playlist…")
+                if playing_source and playing_source.startswith(("PL:", "AL:", "AP:")):
+                    self.query_one("#tracks-title", Label).update("Loading tracks…")
                     self.browse(source_id=playing_source, reveal=False)
-            if playing_source and not playing_source.startswith("PL:"):
+            if playing_source and not playing_source.startswith(("PL:", "AL:", "AP:")):
                 self.render_radio_track()
             self.render_state()
         except AppError as error:
@@ -189,12 +205,15 @@ class PandoraApp(App):
             + "━" * filled + "─" * (bar_width - filled) + f"  Vol {int(state.get('volume', .5)*100)}%")
         self.query_one("#toggle", Button).label = "Pause" if state.get("status") == "Playing" else "Play"
         self.query_one("#toggle", Button).disabled = not bool(track) or state.get("busy", False)
+        self.query_one("#previous", Button).label = state.get("previous_label", "Previous")
+        self.query_one("#previous", Button).disabled = not state.get("can_previous") or state.get("busy", False)
+        self.query_one("#next", Button).label = "Skip" if state.get("previous_label") == "Replay" else "Next"
         self.query_one("#next", Button).disabled = not state.get("can_next") or state.get("busy", False)
         for identity in ("thumb-up", "thumb-down"):
             self.query_one("#" + identity, Button).display = bool(state.get("can_thumb"))
-        self.query_one("#shuffle", Button).disabled = not str(track.get("source_id", "")).startswith("PL:")
+        self.query_one("#shuffle", Button).display = str(track.get("source_id", "")).startswith("PL:")
         self.query_one("#shuffle", Button).label = "Shuffle on" if state.get("shuffle") else "Shuffle off"
-        self.query_one("#more", Button).display = bool(self.browse_source and self.browse_source.startswith("PL:"))
+        self.query_one("#more", Button).display = bool(self.browse_source and self.browse_source.startswith(("PL:", "AL:", "AP:")))
         self.query_one("#more", Button).disabled = len(self.track_rows) >= self.track_total
         message = state.get("error") or ("Working…" if state.get("busy") else
                   "Enter play · 3 tracks · v spectrum · Ctrl+Q stop player")
@@ -237,13 +256,19 @@ class PandoraApp(App):
 
     @on(DataTable.RowSelected)
     def selected(self, event):
-        if event.data_table.id == "tracks" and self.browse_source and self.browse_source.startswith("PL:"):
+        if event.data_table.id == "tracks" and self.browse_source and self.browse_source.startswith(("PL:", "AL:", "AP:")):
             self.command("choose", source_id=self.browse_source, index=int(event.row_key.value))
+        elif event.data_table.id == "discover":
+            self.command("choose", source_id=str(event.row_key.value))
         elif event.data_table.id in ("stations", "playlists"):
             self.command("choose", source_id=str(event.row_key.value))
 
     @work(group="commands")
     async def command(self, command, **args):
+        if command == "choose":
+            if self.selection_pending:
+                return
+            self.selection_pending = True
         try:
             self.query_one("#status", Static).update("Working…")
             await self.client.request(command, **args)
@@ -251,15 +276,19 @@ class PandoraApp(App):
             await self.poll()
         except AppError as error:
             self.query_one("#status", Static).update(str(error))
+        finally:
+            if command == "choose":
+                self.selection_pending = False
 
     @on(Button.Pressed)
     def button(self, event):
         identity = event.button.id
-        if identity in ("toggle", "next"): self.command(identity)
+        if identity in ("toggle", "next", "previous"): self.command(identity)
         elif identity == "choose" and self.active_source():
             self.command("choose", source_id=self.active_source())
         elif identity == "browse": self.action_browse()
         elif identity == "more": self.browse(more=True)
+        elif identity == "music-more": self.search_music(more=True)
         elif identity == "shuffle": self.command("shuffle", value=not self.state.get("shuffle"))
         elif identity in ("thumb-up", "thumb-down"): self.command("thumb", positive=identity == "thumb-up")
         elif identity in ("quieter", "louder"):
@@ -267,9 +296,51 @@ class PandoraApp(App):
 
     def action_toggle(self): self.command("toggle")
     def action_next(self): self.command("next")
+    def action_previous(self): self.command("previous")
     def action_refresh(self): self.command("refresh")
     def action_login(self): self.push_screen(LoginScreen())
-    def action_search(self): self.query_one("#search", Input).focus()
+    def action_search(self):
+        if self.query_one("#library-tabs", TabbedContent).active == "discover-tab":
+            self.query_one("#music-query", Input).focus()
+        else:
+            self.action_stations()
+            self.query_one("#search", Input).focus()
+
+    def action_discover(self):
+        self.show_table("discover")
+        self.query_one("#music-query", Input).focus()
+
+    @on(Input.Submitted, "#music-query")
+    def submit_music_search(self): self.search_music()
+
+    @work(exclusive=True, group="music-search")
+    async def search_music(self, more=False):
+        query = self.music_query if more else self.query_one("#music-query", Input).value.strip()
+        if not query:
+            return
+        self.query_one("#music-status", Static).update("Searching Pandora…")
+        self.query_one("#music-more", Button).disabled = True
+        try:
+            offset = len(self.music_rows) if more else 0
+            data = await self.client.request("search", query=query, offset=offset)
+            table = self.query_one("#discover", DataTable)
+            if not more:
+                table.clear()
+                self.music_rows = []
+            self.music_query = query
+            existing = {row["id"] for row in self.music_rows}
+            for row in data["results"]:
+                if row["id"] not in existing:
+                    table.add_row(row["kind"].title(), Text(row["name"]), Text(row["artist"]), key=row["id"])
+                    existing.add(row["id"])
+            self.music_rows.extend(data["results"])
+            self.music_has_more = data["has_more"]
+            self.query_one("#music-more", Button).disabled = not self.music_has_more
+            self.query_one("#music-status", Static).update(
+                f"{len(existing)} results · Enter to play" if existing else "No matches. Try another search.")
+            table.focus()
+        except AppError as error:
+            self.query_one("#music-status", Static).update(str(error))
     def show_table(self, name):
         self.query_one("#library-tabs", TabbedContent).active = name + "-tab"
         self.query_one("#" + name, DataTable).focus()
@@ -303,7 +374,8 @@ class PandoraApp(App):
     def fit_tables(self):
         width = max(20, self.size.width - 8)
         specs = {"stations": [width - 2], "playlists": [width - 10, 6],
-                 "tracks": [3, max(8, int((width - 17) * .6)), max(6, int((width - 17) * .4)), 5]}
+                 "tracks": [3, max(8, int((width - 17) * .6)), max(6, int((width - 17) * .4)), 5],
+                 "discover": [8, max(8, int((width - 14) * .65)), max(6, int((width - 14) * .35))]}
         for name, widths in specs.items():
             table = self.query_one("#" + name, DataTable)
             for column, size in zip(table.columns.values(), widths):
@@ -319,7 +391,8 @@ class PandoraApp(App):
         if key == self.radio_track_key:
             return
         self.radio_track_key = key
-        self.load_up_next(key)
+        if str(key[0]).startswith("ST:"):
+            self.load_up_next(key)
         table = self.query_one("#tracks", DataTable)
         table.clear()
         table.add_row("▶", Text(track.get("title", "")), Text(track.get("artist", "")),
@@ -328,7 +401,7 @@ class PandoraApp(App):
         self.track_rows = []
         self.track_total = 0
         self.query_one("#tracks-title", Label).update(Text(
-            self.state.get("source_name", "Station") + " · Current radio track"))
+            self.state.get("source_name", "Station") + " · Current track"))
 
     @work(exclusive=True, group="up-next")
     async def load_up_next(self, key):
@@ -344,15 +417,16 @@ class PandoraApp(App):
 
     @on(TabbedContent.TabActivated, "#library-tabs")
     def tracks_activated(self, event):
+        self.query_one("#search").display = event.pane.id in ("stations-tab", "playlists-tab")
         if event.pane.id == "tracks-tab" and not self.browse_source:
             source = (self.state.get("track") or {}).get("source_id")
-            if source and source.startswith("PL:"):
+            if source and source.startswith(("PL:", "AL:", "AP:")):
                 self.browse(source_id=source, reveal=False)
 
     @work(exclusive=True, group="tracks")
     async def browse(self, more=False, source_id=None, reveal=True):
         source = self.browse_source if more else (source_id or (self.state.get("track") or {}).get("source_id"))
-        if not source or not source.startswith("PL:"):
+        if not source or not source.startswith(("PL:", "AL:", "AP:")):
             self.query_one("#status", Static).update("Choose a playlist to browse its tracks. Stations generate songs as they play.")
             return
         try:

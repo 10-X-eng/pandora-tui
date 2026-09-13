@@ -1,6 +1,6 @@
 pkgname=pandora-tui
-pkgver=0.1.0
-pkgrel=3
+pkgver=0.2.0
+pkgrel=2
 pkgdesc='Pandora terminal player with background playback and desktop media controls'
 arch=('any')
 license=('MIT')
@@ -8,7 +8,7 @@ depends=('python' 'python-textual' 'python-dbus-next' 'python-secretstorage' 'py
 makedepends=('python-build' 'python-installer' 'python-setuptools')
 optdepends=('xdg-terminal-exec: launch from desktop menus' 'gnome-keyring: securely remember login')
 source=("$pkgname-$pkgver.tar.gz")
-sha256sums=('f5d08c3b94581776d8c3469e29ca71d1a07f195994811334d82af8e875a57bca')
+sha256sums=('d2cfaa10e65c40f1d0e4cc44257990aa0a2e2ea9aee477a4febfb3589a500e05')
 build() {
   cd "$srcdir/$pkgname-$pkgver"
   python -m build --wheel --no-isolation

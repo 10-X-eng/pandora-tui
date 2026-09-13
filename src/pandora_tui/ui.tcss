@@ -8,7 +8,8 @@ Header { background: $surface; }
 #progress { height: 1; color: $text-muted; }
 #controls { height: 3; margin-top: 1; }
 Button { min-width: 5; height: 3; padding: 0 1; margin-right: 1; }
-#toggle, #next { min-width: 8; }
+#toggle, #next { min-width: 7; }
+#previous { min-width: 9; }
 #spectrum-label { height: 1; color: $text-muted; text-style: dim; margin-top: 1; }
 #spectrum { height: 5; color: $primary; }
 .compact #spectrum { height: 2; }
@@ -28,3 +29,8 @@ LoginScreen { align: center middle; background: $background 80%; }
 #login-card Input { margin-top: 1; }
 #login-card Horizontal { height: 3; margin-top: 1; }
 #login-error { height: auto; color: $error; }
+
+#music-query { height: 3; margin: 0; }
+#music-status { height: 1; color: $text-muted; }
+#music-more { height: 3; margin: 0; }
+#quieter, #louder { width: 4; min-width: 3; padding: 0; }

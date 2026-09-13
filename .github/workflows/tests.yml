@@ -19,5 +19,5 @@ jobs:
       - run: python -m pytest -q
       - run: python scripts/audit_release.py
       - run: python packaging/prepare.py
-      - run: python scripts/audit_release.py --archive packaging/pandora-tui-0.1.0.tar.gz
+      - run: python scripts/audit_release.py --archive packaging/pandora-tui-0.2.0.tar.gz
       - run: python -m build --wheel

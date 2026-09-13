@@ -32,6 +32,7 @@ class Track:
     interactions: list[str] = field(default_factory=list)
     progress: float = 0
     item_type: str = "Track"
+    shuffled: bool = False
 
     @classmethod
     def parse(cls, item):

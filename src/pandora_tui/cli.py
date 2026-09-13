@@ -37,7 +37,7 @@ def launch_ui():
 def main():
     parser = argparse.ArgumentParser(description="Pandora TUI — background playback and desktop media controls")
     parser.add_argument("command", nargs="?", default="ui",
-                        choices=["ui", "launch", "serve", "status", "play", "pause", "toggle", "next", "stop", "quit", "logout"])
+                        choices=["ui", "launch", "serve", "status", "play", "pause", "toggle", "next", "previous", "stop", "quit", "logout"])
     parser.add_argument("--silent", action="store_true", help="Use a silent audio output for service testing")
     parser.add_argument("--no-restore", action="store_true", help="Do not load keyring credentials when starting the service")
     args = parser.parse_args()

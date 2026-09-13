@@ -65,7 +65,7 @@ class Player(ServiceInterface):
     async def Next(self): await self.engine._guard(self.engine.next())
 
     @method()
-    def Previous(self): pass
+    async def Previous(self): await self.engine._guard(self.engine.previous())
 
     @method()
     def Seek(self, Offset: 'x'): pass
@@ -127,7 +127,7 @@ class Player(ServiceInterface):
     def CanGoNext(self) -> 'b': return self.engine.can_next and not self.engine.busy
 
     @dbus_property(access=PropertyAccess.READ)
-    def CanGoPrevious(self) -> 'b': return False
+    def CanGoPrevious(self) -> 'b': return self.engine.can_previous and not self.engine.busy
 
     @dbus_property(access=PropertyAccess.READ)
     def CanPlay(self) -> 'b': return bool(self.engine.track) and not self.engine.busy
@@ -142,7 +142,7 @@ class Player(ServiceInterface):
     def CanControl(self) -> 'b': return True
 
     def changed(self):
-        names = ("PlaybackStatus", "Metadata", "Volume", "Shuffle", "CanGoNext", "CanPlay", "CanPause")
+        names = ("PlaybackStatus", "Metadata", "Volume", "Shuffle", "CanGoNext", "CanGoPrevious", "CanPlay", "CanPause")
         self.emit_properties_changed({name: getattr(self, name) for name in names})
 
 

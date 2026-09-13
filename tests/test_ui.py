@@ -83,3 +83,44 @@ async def test_tracks_follow_station_after_playlist():
         assert app.browse_source=='ST:0:1'
         assert 'Radio song' in str(app.query_one('#tracks',DataTable).get_row('current'))
         assert not app.query_one('#more').display
+
+
+async def test_discover_search_can_play_catalog_result():
+    class SearchClient(Client):
+        async def request(self,command,**args):
+            if command=='search':
+                self.commands.append((command,args))
+                return {'results':[{'id':'TR:2','kind':'song','name':'New song','artist':'Artist','count':0}], 'has_more':False}
+            return await super().request(command,**args)
+    client=SearchClient();app=PandoraApp(client=client,visualizer=False)
+    async with app.run_test(size=(60,28)) as pilot:
+        await pilot.pause();await pilot.press('4');await pilot.press('a','r','t','enter');await pilot.pause()
+        table=app.query_one('#discover',DataTable)
+        assert table.row_count==1
+        await pilot.press('enter');await pilot.pause()
+        assert ('choose',{'source_id':'TR:2'}) in client.commands
+
+
+async def test_repeated_click_does_not_queue_another_selection():
+    import asyncio
+    class SlowClient(Client):
+        started = asyncio.Event()
+        release = asyncio.Event()
+        async def request(self, command, **args):
+            if command == 'choose':
+                self.commands.append((command, args))
+                self.started.set()
+                await self.release.wait()
+                return
+            return await super().request(command, **args)
+    client = SlowClient()
+    app = PandoraApp(client=client, visualizer=False)
+    async with app.run_test(size=(80,40)) as pilot:
+        await pilot.pause()
+        first = app.command('choose', source_id='PL:1')
+        await client.started.wait()
+        second = app.command('choose', source_id='PL:1')
+        await second.wait()
+        client.release.set()
+        await first.wait()
+        assert sum(c == 'choose' for c, _ in client.commands) == 1

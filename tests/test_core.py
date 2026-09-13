@@ -118,3 +118,77 @@ def test_station_preview_excludes_stream_and_token():
     assert preview['title']=='Next song'
     assert 'private' not in repr(preview)
     assert api._web.call_args.args[0]=='v1/playback/peek'
+
+
+async def test_previous_uses_distinct_playlist_and_radio_actions(engine):
+    await engine.choose('PL:1')
+    engine.api.previous.return_value=track()
+    assert engine.can_previous
+    await engine.previous()
+    assert engine.api.previous.call_args.args[-1] is False
+    engine.track.source_id='ST:0:1';engine.track.interactions=['SKIP']
+    assert not engine.can_previous
+    with pytest.raises(AppError):await engine.previous()
+    engine.track.interactions.append('REPLAY')
+    engine.api.previous.return_value=engine.track
+    await engine.previous()
+    assert engine.api.previous.call_args.args[-1] is True
+    await engine.close()
+
+
+def test_music_search_returns_safe_catalog_metadata():
+    api=PandoraAPI('test')
+    api._web=Mock(return_value={'results':['AR:1','TR:2'], 'annotations':{
+        'AR:1':{'name':'Artist'},'TR:2':{'name':'Song','artistName':'Artist','audioUrl':'private'}}})
+    result=api.search('Artist')
+    assert result['results'][0]['id']=='AP:16722:1'
+    assert result['results'][1]['kind']=='song'
+    assert 'private' not in repr(result)
+
+
+def test_playlist_selection_sets_row_index_and_disables_shuffle():
+    api=PandoraAPI('test')
+    api._web=Mock(return_value={'item':{'audioUrl':'https://cdn.example/audio'}})
+    api.source('PL:1',50)
+    fields=api._web.call_args.args[1]
+    assert fields['index']==50 and fields['shuffle'] is False
+    assert 'itemId' not in fields
+
+
+def test_playback_uses_canonical_source_for_followup_actions():
+    api=PandoraAPI('test')
+    result=api._track({'item':{'audioUrl':'https://cdn.example/audio', 'sourceId':'temporary'},
+                       'source':{'pandoraId':'PL:1', 'shuffle':False}})
+    assert result.source_id=='PL:1'
+
+
+def test_artist_tracks_read_details_not_basic_annotations():
+    api=PandoraAPI('test')
+    api._web=Mock(side_effect=[{'artistDetails':{'topTracks':['TR:1']}, 'annotations':{}},
+                              {'TR:1':{'name':'Top song','artistName':'Artist','duration':60}}])
+    result=api.tracks('AP:16722:1')
+    assert result['tracks'][0]['title']=='Top song'
+    assert api._web.call_args_list[0].args[0]=='v4/catalog/getDetailsWithCollaborations'
+
+
+def test_volume_survives_restart_and_invalid_preferences(tmp_path):
+    from pandora_tui.preferences import Preferences
+    path = tmp_path / "preferences.json"
+    preferences = Preferences(path)
+    assert preferences.volume() == .5
+    preferences.save_volume(.73)
+    assert Preferences(path).volume() == .73
+    assert path.stat().st_mode & 0o777 == 0o600
+    path.write_text('{"volume": "invalid"}')
+    assert preferences.volume() == .5
+
+
+async def test_engine_restores_and_saves_volume(engine, tmp_path):
+    from pandora_tui.preferences import Preferences
+    preferences = Preferences(tmp_path / "preferences.json")
+    preferences.save_volume(.73)
+    restored = Engine(engine.api, engine.store, player_factory=Audio, preferences=preferences)
+    assert restored.volume == .73
+    await restored.set_volume(.31)
+    assert preferences.volume() == .31
+    await restored.close()

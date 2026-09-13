@@ -14,7 +14,7 @@ sudo pacman -S --needed base-devel python python-textual python-dbus-next \
   python-installer python-setuptools
 python packaging/prepare.py
 cd packaging
-makepkg -f
+makepkg -Cf
 sudo pacman -U ./pandora-tui-*.pkg.tar.zst
 ```
 
@@ -49,19 +49,25 @@ TUI or focuses its existing window.
 
 ## Use
 
-Tracks follows the playing source automatically: playlist songs appear when a
-playlist is playing; radio shows the current song and an upcoming song when
+Open **4 Discover** (or press **s**) to search Pandora for new music. Enter a
+song, artist, or album name, press Enter to search, then select a result and
+press Enter or single-click to play. This searches the catalog, not just your saved library.
+
+Tracks follows the playing source automatically: playlists, albums, and artist
+top songs display their tracks; radio shows the current song and an upcoming song when
 Pandora makes one available. Radio is not a fixed playlist. Playlists load 50
 songs at a time; use **Load more tracks** to continue browsing.
 
 | Key | Action |
 | --- | --- |
-| 1 / 2 / 3 | Stations / playlists / tracks for the playing source |
+| 1 / 2 / 3 / 4 | Stations / playlists / current tracks / Discover |
+| s | Find new music on Pandora |
 | / | Search stations and playlists |
 | Escape | Return from search to the browser |
 | Enter | Play the selected station, playlist, or playlist track |
 | Space | Play or pause |
-| n | Skip, when Pandora permits it |
+| n | Next / skip, when Pandora permits it |
+| p | Previous for on-demand music; replay the current radio song when allowed |
 | b | Open Tracks |
 | v | Hide or show the audio spectrum |
 | r / l | Refresh library / sign in |
@@ -69,11 +75,12 @@ songs at a time; use **Load more tracks** to continue browsing.
 | Ctrl+Q | Stop music and quit the background player |
 
 Closing the terminal leaves music playing. Reopening the TUI reconnects to the
-same player. On systemd desktops, the player starts on demand as a transient
+same player. Volume is saved locally and restored when the player starts again.
+On systemd desktops, the player starts on demand as a transient
 user service, independent of the terminal's scope. It does not start music at boot.
 
 The existing desktop media panel can show song, artist, album, and artwork and
-control play/pause, next, and volume through MPRIS. Stations and playlists are
+control play/pause, previous/replay, next, and volume through MPRIS. Stations and playlists are
 also exported through MPRIS Playlists. Omarchy's stock panel does not currently
 provide a picker for that list, so choose sources in the TUI.
 
@@ -89,6 +96,7 @@ pandora-tui status
 pandora-tui play
 pandora-tui pause
 pandora-tui next
+pandora-tui previous
 pandora-tui stop     # Stop audio, leave service running
 pandora-tui quit     # End the service
 pandora-tui logout   # Stop playback and remove the saved keyring login
@@ -99,7 +107,7 @@ pandora-tui logout   # Stop playback and remove the saved keyring login
 This is an unofficial client using undocumented Pandora endpoints. It has been
 live-tested with a Premium account; other tiers and regions may behave differently.
 Saved playlists and on-demand playback depend on your account. Ratings and skips
-are subject to Pandora's permissions. Previous/seek controls are not exposed yet.
+are subject to Pandora's permissions. Previous/replay controls follow the source type and account permissions; seeking is not exposed yet.
 
 - **Another-device message:** Pandora permits one active playback session. Pause
   other Pandora clients, then select a source again. Do not run an independent

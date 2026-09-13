@@ -2,20 +2,23 @@
 import asyncio
 from .errors import AppError, AuthenticationError
 from .player import MpvPlayer
+from .models import Source
 
 
 class Engine:
-    def __init__(self, api, store, silent=False, player_factory=MpvPlayer):
+    def __init__(self, api, store, silent=False, player_factory=MpvPlayer, preferences=None):
         self.api, self.store = api, store
         self.player = player_factory(self._player_event, silent=silent)
         self.track = None
         self.sources = []
+        self.catalog_sources = {}
         self.authenticated = False
         self.status = "Stopped"
         self.error = ""
         self.busy = False
         self.position = 0.0
-        self.volume = .5
+        self.preferences = preferences
+        self.volume = preferences.volume() if preferences else .5
         self.shuffle = False
         self.started = False
         self.last_progress = 0
@@ -69,6 +72,7 @@ class Engine:
             try:
                 self.authenticated = False
                 self.sources = []
+                self.catalog_sources.clear()
                 self.track = None
                 await asyncio.to_thread(self.api.login, email, password)
                 self.authenticated = True
@@ -86,9 +90,48 @@ class Engine:
             self.error = ""
             self.notify()
 
+    async def search(self, query, offset=0):
+        query = query.strip()
+        if not query or len(query) > 200:
+            raise AppError("Enter a music search between 1 and 200 characters.")
+        data = await asyncio.to_thread(self.api.search, query, offset)
+        if offset == 0:
+            active = self.catalog_sources.get(self.track.source_id) if self.track else None
+            self.catalog_sources.clear()
+            if active:
+                self.catalog_sources[active.id] = active
+        for row in data["results"]:
+            self.catalog_sources[row["id"]] = Source(row["id"], row["name"], row["kind"], row["count"])
+        return data
+
+    @property
+    def is_radio(self):
+        return bool(self.track and self.track.source_id.split(":")[0] in {"ST", "SF", "AU"})
+
+    @property
+    def can_previous(self):
+        if not self.track or self.track.item_type != "Track":
+            return False
+        return "REPLAY" in self.track.interactions if self.is_radio else "SEEK" in self.track.interactions
+
+    async def previous(self):
+        async with self.lock:
+            if not self.can_previous:
+                raise AppError("Pandora does not allow replay or previous for this item.")
+            await self.player.pause(True)
+            self.status = "Paused"
+            self.busy = True
+            self.notify()
+            try:
+                track = await asyncio.to_thread(self.api.previous, self.track, self.position, self.is_radio)
+                await self._load(track)
+            finally:
+                self.busy = False
+                self.notify()
+
     async def choose(self, source_id, index=0):
         async with self.lock:
-            if source_id not in {s.id for s in self.sources}:
+            if source_id not in {s.id for s in self.sources} | self.catalog_sources.keys():
                 raise AppError("That station or playlist is not in your library. Refresh and try again.")
             self.busy = True
             self.notify()
@@ -106,6 +149,7 @@ class Engine:
 
     async def _load(self, track):
         self.track = track
+        self.shuffle = track.shuffled
         self.position = track.progress
         self.started = False
         self.last_progress = 0
@@ -192,7 +236,7 @@ class Engine:
             if not self.track or self.status == "Playing":
                 return
             if self.status == "Stopped":
-                await self._load(await asyncio.to_thread(self.api.source, self.track.source_id, self.track.index))
+                await self._load(await asyncio.to_thread(self.api.current, self.track.source_id))
             else:
                 self.started = False
                 self.status = "Playing"
@@ -221,6 +265,8 @@ class Engine:
     async def set_volume(self, value):
         self.volume = max(0.0, min(1.0, float(value)))
         await self.player.volume(self.volume)
+        if self.preferences:
+            await asyncio.to_thread(self.preferences.save_volume, self.volume)
         self.notify()
 
     async def set_shuffle(self, value):
@@ -248,14 +294,16 @@ class Engine:
         self.authenticated = False
         self.sources = []
         self.track = None
+        self.catalog_sources.clear()
         self.notify()
 
     def snapshot(self):
-        name = next((s.name for s in self.sources if self.track and s.id == self.track.source_id), "")
+        name = next((s.name for s in [*self.sources, *self.catalog_sources.values()] if self.track and s.id == self.track.source_id), "")
         return {"authenticated": self.authenticated, "status": self.status,
                 "track": self.track.public() if self.track else None, "source_name": name,
                 "position": self.position, "volume": self.volume, "shuffle": self.shuffle,
                 "can_next": self.can_next, "can_thumb": self.can_thumb,
+                "can_previous": self.can_previous, "previous_label": "Replay" if self.is_radio else "Previous",
                 "busy": self.busy, "error": self.error}
 
     async def close(self):

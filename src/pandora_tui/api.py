@@ -118,6 +118,8 @@ class PandoraAPI:
         return result
 
     def tracks(self, source_id, offset=0):
+        if source_id.startswith(("AL:", "AP:")):
+            return self.catalog_tracks(source_id, offset)
         page = self._web("v7/playlists/getTracks", {"request": {
             "pandoraId": source_id, "offset": offset, "limit": 50}})
         items = page.get("tracks", [])
@@ -134,6 +136,50 @@ class PandoraAPI:
                          "duration": item.get("duration", 0)})
         return {"tracks": rows, "total": page.get("totalTracks", len(rows)), "offset": offset}
 
+    def catalog_tracks(self, source_id, offset=0):
+        identity = "AR:" + source_id.rsplit(":", 1)[1] if source_id.startswith("AP:") else source_id
+        endpoint = "v4/catalog/getDetailsWithCollaborations" if source_id.startswith("AP:") else "v4/catalog/getDetails"
+        data = self._web(endpoint, {"pandoraId": identity, "listener": None})
+        annotations = data.get("annotations", data)
+        detail = data.get("artistDetails", {}) if source_id.startswith("AP:") else annotations.get(identity, {})
+        ids = detail.get("topTracks" if source_id.startswith("AP:") else "tracks", [])
+        page = ids[offset:offset + 50]
+        if page:
+            more = self._web("v4/catalog/annotateObjects", {"pandoraIds": page, "annotateAlbumTracks": False})
+            annotations.update(more.get("annotations", more))
+        rows = []
+        for index, track_id in enumerate(page, offset):
+            track = annotations.get(track_id, {})
+            rows.append({"index": index, "id": track_id, "title": clean(track.get("name")),
+                         "artist": clean(track.get("artistName")), "duration": track.get("duration", 0)})
+        return {"tracks": rows, "total": len(ids), "offset": offset}
+
+    def search(self, query, offset=0):
+        data = self._web("v3/sod/search", {"query": query, "types": ["TR", "AL", "AR", "PL", "SF"],
+            "listener": None, "start": offset, "count": 50, "annotate": True,
+            "searchTime": None, "annotationRecipe": "CLASS_OF_2019"})
+        annotations = data.get("annotations", {})
+        rows = []
+        kinds = {"TR": "song", "AL": "album", "AR": "artist", "PL": "playlist", "SF": "station", "ST": "station"}
+        for result in data.get("results", []):
+            identity = result if isinstance(result, str) else result.get("pandoraId", "")
+            detail = annotations.get(identity, result if isinstance(result, dict) else {})
+            prefix = identity.split(":")[0]
+            if prefix not in kinds:
+                continue
+            source_id = "AP:16722:" + identity.split(":", 1)[1] if prefix == "AR" else identity
+            rows.append({"id": source_id, "kind": kinds[prefix], "name": clean(detail.get("name")),
+                         "artist": clean(detail.get("artistName")),
+                         "count": int(detail.get("totalTracks") or detail.get("trackCount") or 0)})
+        return {"results": rows, "offset": offset, "has_more": len(data.get("results", [])) == 50}
+
+    def previous(self, track, elapsed, replay=False):
+        fields = {**self._fields(track, elapsed), "includeItem": True, "includeSource": True}
+        if replay:
+            fields["trackToken"] = track.token
+        data = self._web("v1/action/replay" if replay else "v1/action/previous", fields)
+        return self._track(data) if data.get("item") else self.current(track.source_id)
+
     def up_next(self, source_id):
         """Read the station's upcoming item without advancing playback."""
         data = self._web("v1/playback/peek", {"sourceId": source_id,
@@ -146,8 +192,18 @@ class PandoraAPI:
                 "duration": track.duration, "index": track.index}
 
     def source(self, source_id, index=0):
-        return self._track(self._web("v1/playback/source", {"sourceId": source_id,
-            "index": index, "deviceUuid": self.device_id, "includeItem": True, "includeSource": True}))
+        fields = {"sourceId": source_id, "deviceUuid": self.device_id,
+                  "includeItem": True, "includeSource": True}
+        if source_id.startswith("PL:"):
+            fields["index"] = index
+            fields["shuffle"] = False
+        elif source_id.startswith(("AL:", "AP:")):
+            page = self.catalog_tracks(source_id, index)
+            if page["tracks"]:
+                fields["itemId"] = page["tracks"][0]["id"]
+        else:
+            fields["index"] = index
+        return self._track(self._web("v1/playback/source", fields))
 
     def _track(self, data):
         item = data.get("item")
@@ -156,6 +212,8 @@ class PandoraAPI:
         if not isinstance(item, dict) or not item.get("audioUrl"):
             raise AppError("Pandora did not return playable audio for this selection.")
         track = Track.parse(item)
+        track.source_id = str((data.get("source") or {}).get("pandoraId") or track.source_id)
+        track.shuffled = bool((data.get("source") or {}).get("shuffle", False))
         # Pandora sometimes supplies plain HTTP CDN links; use TLS for playback.
         if urllib.parse.urlsplit(track.audio_url).scheme == "http":
             track.audio_url = "https:" + track.audio_url[5:]

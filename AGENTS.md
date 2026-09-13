@@ -6,6 +6,7 @@
   backend minimal and modules separate. Do not add a browser runtime.
 - Closing the TUI must keep music playing. The single background service owns
   mpv, authentication, and MPRIS. The TUI only talks to its private Unix socket.
+- Persist volume across service restarts. Keep preferences separate from credentials.
 - Tracks follows the playing source automatically. Do not require a manual
   browse action to display the active playlist.
 - CAVA is owned by the TUI and must stop when hidden or when the TUI closes.
@@ -41,7 +42,7 @@ For native packaging:
 ```sh
 python packaging/prepare.py
 cd packaging
-makepkg -f
+makepkg -Cf
 sudo pacman -U ./pandora-tui-*.pkg.tar.zst
 ```
 
@@ -88,7 +89,7 @@ if remembering login. `pandora-tui launch` opens or focuses a terminal window.
   private strings to reject. It reports locations, never matched values.
 - Run `python packaging/prepare.py`; it creates an allowlisted source archive
   with normalized owner metadata and timestamps. Audit it too:
-  `python scripts/audit_release.py --archive packaging/pandora-tui-0.1.0.tar.gz`.
+  `python scripts/audit_release.py --archive packaging/pandora-tui-0.2.0.tar.gz`.
 - Build/install the Arch package from the generated archive and verify the
   wheel contains only application modules and normal package metadata.
   Native `.BUILDINFO` may contain local build paths: do not upload locally
